@@ -72,6 +72,10 @@ def scan_ports(target, ports):
         process = subprocess.Popen(nmap_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = process.communicate()
 
+        # Any stderr at all is treated as a failed scan, warnings
+        # included, and the successful stdout is thrown away. The empty
+        # dict this returns is the same value a scan with no open ports
+        # produces, and main cannot tell the two apart.
         if stderr:
             logging.error(f"nmap scan failed: {stderr.decode()}")
             return {}
@@ -79,6 +83,10 @@ def scan_ports(target, ports):
         #Parse the nmap output (basic parsing, can be improved with proper nmap parsing libraries)
         results = {}
         for line in stdout.decode().splitlines():
+            # The substring test also matches open|filtered lines, and
+            # the service is taken as the last word on the line, which
+            # for a version string is the last word of the version, not
+            # the service name the checks below look for.
             if "open" in line and "tcp" in line:
                 port = line.split("/")[0]
                 service = line.split(" ")[-1]
@@ -177,6 +185,9 @@ def export_threat_model(threat_model, output_file, output_format="json"):
                 markdown_content += f"- {vulnerability}\n"
 
             try:
+                 # The staging file has a fixed name in the working
+                 # directory. Two runs at once collide on it, and a run
+                 # that fails after this write leaves it behind.
                  html_content = markdown2.markdown(markdown_content)
                  with open("temp.html", "w") as f:
                     f.write(html_content)
