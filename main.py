@@ -7,13 +7,7 @@ import subprocess
 import sys
 import json
 import os
-
-try:
-    import graphviz
-    import markdown2
-except ImportError as e:
-    print(f"Error: Missing dependencies. Please install: {e.name}")
-    sys.exit(1)
+import tempfile
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -71,27 +65,18 @@ def scan_ports(target, ports):
         nmap_command = ['nmap', '-sV', '-p', ports, target]
         process = subprocess.Popen(nmap_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = process.communicate()
-
-        # Any stderr at all is treated as a failed scan, warnings
-        # included, and the successful stdout is thrown away. The empty
-        # dict this returns is the same value a scan with no open ports
-        # produces, and main cannot tell the two apart.
         if stderr:
-            logging.error(f"nmap scan failed: {stderr.decode()}")
-            return {}
-
-        #Parse the nmap output (basic parsing, can be improved with proper nmap parsing libraries)
+            logging.warning(f"nmap stderr: {stderr.decode(errors='replace').strip()}")
+        if process.returncode != 0:
+            logging.error(f"nmap exited with code {process.returncode}")
+            # Still parse any stdout below; empty results will fail in main.
         results = {}
-        for line in stdout.decode().splitlines():
-            # The substring test also matches open|filtered lines, and
-            # the service is taken as the last word on the line, which
-            # for a version string is the last word of the version, not
-            # the service name the checks below look for.
-            if "open" in line and "tcp" in line:
-                port = line.split("/")[0]
-                service = line.split(" ")[-1]
+        for line in stdout.decode(errors='replace').splitlines():
+            parts = line.split()
+            if len(parts) >= 3 and "/" in parts[0] and parts[1] == "open":
+                port = parts[0].split("/")[0]
+                service = parts[2]
                 results[port] = service
-
         return results
 
     except ValueError as e:
@@ -165,6 +150,7 @@ def export_threat_model(threat_model, output_file, output_format="json"):
             with open(output_file, "w") as f:
                 json.dump(threat_model, f, indent=4)
             logging.info(f"Threat model exported to {output_file} in JSON format.")
+            return True
 
         elif output_format == "markdown":
             markdown_content = f"# Threat Model: {threat_model['model_name']}\n\n"
@@ -176,6 +162,7 @@ def export_threat_model(threat_model, output_file, output_format="json"):
             with open(output_file, "w") as f:
                 f.write(markdown_content)
             logging.info(f"Threat model exported to {output_file} in Markdown format.")
+            return True
 
         elif output_format == "pdf":
             markdown_content = f"# Threat Model: {threat_model['model_name']}\n\n"
@@ -184,24 +171,30 @@ def export_threat_model(threat_model, output_file, output_format="json"):
             for vulnerability in threat_model['vulnerabilities']:
                 markdown_content += f"- {vulnerability}\n"
 
+            tmp_path = None
             try:
-                 # The staging file has a fixed name in the working
-                 # directory. Two runs at once collide on it, and a run
-                 # that fails after this write leaves it behind.
+                 import markdown2
                  html_content = markdown2.markdown(markdown_content)
-                 with open("temp.html", "w") as f:
+                 out_dir = os.path.dirname(os.path.abspath(output_file))
+                 fd, tmp_path = tempfile.mkstemp(prefix="threat_model_", suffix=".html", dir=out_dir)
+                 with os.fdopen(fd, "w") as f:
                     f.write(html_content)
-
-                 subprocess.run(["wkhtmltopdf", "temp.html", output_file], check=True)
-                 os.remove("temp.html") #Clean up
+                 subprocess.run(["wkhtmltopdf", tmp_path, output_file], check=True)
                  logging.info(f"Threat model exported to {output_file} in PDF format.")
-            except FileNotFoundError:
-                logging.error("wkhtmltopdf not found. Please ensure wkhtmltopdf is installed and in your PATH. PDF export failed.")
+                 return True
+            except FileNotFoundError as e:
+                logging.error(f"PDF export failed, required tool not found: {e.filename or e}")
+                return False
             except Exception as e:
                 logging.error(f"Error converting to PDF: {e}")
+                return False
+            finally:
+                 if tmp_path and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
 
         elif output_format == "graphviz":
             try:
+                import graphviz
                 dot = graphviz.Digraph(comment=f'Threat Model: {threat_model["model_name"]}')
                 dot.node('A', threat_model['target'])
 
@@ -209,20 +202,21 @@ def export_threat_model(threat_model, output_file, output_format="json"):
                     dot.node(str(i+1), vulnerability)
                     dot.edge('A', str(i+1))
 
-                dot.render(output_file, view=False, format="pdf")  # Output as PDF
+                dot.render(output_file, view=False, format="pdf")
                 logging.info(f"Threat model graph exported to {output_file}.pdf in Graphviz format.")
-
-            except graphviz.backend.ExecutableNotFound:
-                logging.error("Graphviz not found. Please ensure Graphviz is installed and in your PATH.")
+                return True
             except Exception as e:
                 logging.error(f"Error generating Graphviz graph: {e}")
+                return False
         else:
             logging.error(f"Unsupported output format: {output_format}")
-
+            return False
     except IOError as e:
         logging.error(f"Error writing to file: {e}")
+        return False
     except Exception as e:
         logging.error(f"An unexpected error occurred during export: {e}")
+        return False
 
 
 def main():
@@ -252,7 +246,9 @@ def main():
             logging.info(f"- {vulnerability}")
 
     threat_model = generate_threat_model(args.target, vulnerabilities, args.model_name)
-    export_threat_model(threat_model, args.output, args.format)
+    if not export_threat_model(threat_model, args.output, args.format):
+        logging.error("Export failed; no completed threat model was produced.")
+        sys.exit(1)
     logging.info("Threat modeling completed.")
 
 

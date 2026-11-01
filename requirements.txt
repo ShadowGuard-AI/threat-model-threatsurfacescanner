@@ -1,2 +1,2 @@
-graphviz>=1.0.0
+graphviz>=0.20
 markdown2>=1.0.0

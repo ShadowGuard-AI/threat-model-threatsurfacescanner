@@ -1,18 +1,19 @@
 # threat-model-ThreatSurfaceScanner
-A command-line tool that analyzes a target system (e.g., IP address, hostname, or domain) and automatically identifies potential attack vectors based on open ports, service banners, and common misconfigurations. It leverages `nmap` and `socket` to perform scans and identify vulnerabilities. Results are presented in a simple, prioritized list. - Focused on Automates the creation and documentation of threat models using a simple domain-specific language (DSL) or structured input (e.g., JSON). Generates visual diagrams representing system architecture, data flow, and potential threats based on predefined attack patterns. Supports exporting models to markdown, PDF, or other formats for collaboration and reporting.
+
+A command-line tool that analyzes a target system (IP address, hostname, or domain) and identifies potential attack vectors based on open ports and service names from an `nmap -sV` scan. It parses the port, state, and service columns of nmap output, so the service name (for example ssh or http), not the last word of the version banner, drives the named checks for ftp, ssh, http, https, and msrdp. Other open services receive a generic note. Results can be exported as JSON or markdown without extra packages. PDF export uses markdown2 and wkhtmltopdf, and graphviz export uses the graphviz package; both are loaded only when that format is requested. A failed scan or a failed export exits non-zero and does not report completion.
 
 ## Install
-`git clone https://github.com/ShadowStrikeHQ/threat-model-threatsurfacescanner`
+`git clone https://github.com/ShadowGuard-AI/threat-model-threatsurfacescanner`
 
 ## Usage
-`./threat-model-threatsurfacescanner [params]`
+`python main.py 127.0.0.1 -p 22,80,443 -o threat_model.json --format json`
 
 ## Parameters
 - `-h`: Show help message and exit
-- `-p`: No description provided
-- `-o`: No description provided
-- `--format`: No description provided
-- `--model-name`: No description provided
+- `-p`: Comma-separated list of ports to scan (default: 21,22,80,443,3389)
+- `-o`: Output file for the threat model (default: threat_model.json)
+- `--format`: Output format: json, markdown, pdf, or graphviz (default: json)
+- `--model-name`: Name of the threat model (default: default_model)
 
 ## License
-Copyright (c) ShadowStrikeHQ
+Copyright (c) ShadowGuard-AI
