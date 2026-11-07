@@ -41,7 +41,9 @@ def validate_target(target):
         try:
             socket.gethostbyname(target) #Check if it's a valid hostname or domain
             return True
-        except socket.gaierror:
+        except (socket.gaierror, UnicodeError):
+            # gethostbyname raises UnicodeError, not gaierror, for a
+            # malformed name such as one with an empty label.
             logging.error(f"Invalid target: {target}.  Must be a valid IP address, hostname, or domain.")
             return False
 
